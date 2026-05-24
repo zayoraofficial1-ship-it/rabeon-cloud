@@ -11,7 +11,7 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-const SECRET = "RABEON_SECRET_KEY"
+const SECRET = process.env.JWT_SECRET || "RABEON_SECRET_KEY"
 
 app.get("/", (req, res) => {
   res.json({
@@ -25,25 +25,34 @@ app.post("/register", async (req, res) => {
   try {
     const { username, email, password } = req.body
 
-    const existing = await prisma.user.findFirst({
+    if (!username || !email || !password) {
+      return res.status(400).json({
+        error: "All fields are required"
+      })
+    }
+
+    const existingUser = await prisma.user.findFirst({
       where: {
-        OR: [{ email }, { username }]
+        OR: [
+          { email: email },
+          { username: username }
+        ]
       }
     })
 
-    if (existing) {
+    if (existingUser) {
       return res.status(400).json({
         error: "User already exists"
       })
     }
 
-    const hashed = await bcrypt.hash(password, 10)
+    const hashedPassword = await bcrypt.hash(password, 10)
 
     const user = await prisma.user.create({
       data: {
         username,
         email,
-        password: hashed
+        password: hashedPassword
       }
     })
 
@@ -56,9 +65,11 @@ app.post("/register", async (req, res) => {
       }
     })
 
-  } catch (err) {
+  } catch (error) {
+    console.error(error)
+
     res.status(500).json({
-      error: err.message
+      error: "Internal server error"
     })
   }
 })
@@ -68,7 +79,9 @@ app.post("/login", async (req, res) => {
     const { email, password } = req.body
 
     const user = await prisma.user.findUnique({
-      where: { email }
+      where: {
+        email: email
+      }
     })
 
     if (!user) {
@@ -77,9 +90,12 @@ app.post("/login", async (req, res) => {
       })
     }
 
-    const valid = await bcrypt.compare(password, user.password)
+    const validPassword = await bcrypt.compare(
+      password,
+      user.password
+    )
 
-    if (!valid) {
+    if (!validPassword) {
       return res.status(401).json({
         error: "Invalid credentials"
       })
@@ -102,9 +118,11 @@ app.post("/login", async (req, res) => {
       token
     })
 
-  } catch (err) {
+  } catch (error) {
+    console.error(error)
+
     res.status(500).json({
-      error: err.message
+      error: "Internal server error"
     })
   }
 })
@@ -112,5 +130,5 @@ app.post("/login", async (req, res) => {
 const PORT = process.env.PORT || 10000
 
 app.listen(PORT, () => {
-  console.log("Rabeon Cloud running on", PORT)
+  console.log(`Rabeon Cloud running on ${PORT}`)
 })
