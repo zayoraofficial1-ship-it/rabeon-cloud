@@ -1,17 +1,16 @@
 const express = require("express")
 const cors = require("cors")
-const jwt = require("jsonwebtoken")
 const bcrypt = require("bcryptjs")
-const { PrismaClient } = require("@prisma/client")
-
-const prisma = new PrismaClient()
+const jwt = require("jsonwebtoken")
 
 const app = express()
 
 app.use(cors())
 app.use(express.json())
 
-const SECRET = process.env.JWT_SECRET || "RABEON_SECRET_KEY"
+const users = []
+
+const SECRET = "RABEON_SECRET"
 
 app.get("/", (req, res) => {
   res.json({
@@ -22,113 +21,51 @@ app.get("/", (req, res) => {
 })
 
 app.post("/register", async (req, res) => {
-  try {
-    const { username, email, password } = req.body
+  const { username, email, password } = req.body
 
-    if (!username || !email || !password) {
-      return res.status(400).json({
-        error: "All fields are required"
-      })
-    }
+  const exists = users.find(u => u.email === email)
+  if (exists) return res.status(400).json({ error: "User exists" })
 
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: email },
-          { username: username }
-        ]
-      }
-    })
+  const hash = await bcrypt.hash(password, 10)
 
-    if (existingUser) {
-      return res.status(400).json({
-        error: "User already exists"
-      })
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10)
-
-    const user = await prisma.user.create({
-      data: {
-        username,
-        email,
-        password: hashedPassword
-      }
-    })
-
-    res.json({
-      status: "registered",
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email
-      }
-    })
-
-  } catch (error) {
-    console.error(error)
-
-    res.status(500).json({
-      error: "Internal server error"
-    })
+  const user = {
+    id: Date.now(),
+    username,
+    email,
+    password: hash
   }
+
+  users.push(user)
+
+  res.json({
+    status: "registered",
+    user: {
+      id: user.id,
+      username,
+      email
+    }
+  })
 })
 
 app.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body
+  const { email, password } = req.body
 
-    const user = await prisma.user.findUnique({
-      where: {
-        email: email
-      }
-    })
+  const user = users.find(u => u.email === email)
+  if (!user) return res.status(401).json({ error: "Invalid credentials" })
 
-    if (!user) {
-      return res.status(401).json({
-        error: "Invalid credentials"
-      })
-    }
+  const ok = await bcrypt.compare(password, user.password)
+  if (!ok) return res.status(401).json({ error: "Invalid credentials" })
 
-    const validPassword = await bcrypt.compare(
-      password,
-      user.password
-    )
+  const token = jwt.sign({ id: user.id, email }, SECRET)
 
-    if (!validPassword) {
-      return res.status(401).json({
-        error: "Invalid credentials"
-      })
-    }
-
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role
-      },
-      SECRET,
-      {
-        expiresIn: "7d"
-      }
-    )
-
-    res.json({
-      status: "logged_in",
-      token
-    })
-
-  } catch (error) {
-    console.error(error)
-
-    res.status(500).json({
-      error: "Internal server error"
-    })
-  }
+  res.json({
+    status: "logged_in",
+    token
+  })
 })
 
 const PORT = process.env.PORT || 10000
 
 app.listen(PORT, () => {
-  console.log(`Rabeon Cloud running on ${PORT}`)
+  console.log("Rabeon Cloud running on", PORT)
 })
